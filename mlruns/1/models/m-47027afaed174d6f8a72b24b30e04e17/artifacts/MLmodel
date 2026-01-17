@@ -1,0 +1,14 @@
+artifact_path: file:D:/Projects/DM4ML/RecommendationSystem/mlruns/1/models/m-47027afaed174d6f8a72b24b30e04e17/artifacts
+flavors:
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.8.0
+mlflow_version: 3.8.1
+model_id: m-47027afaed174d6f8a72b24b30e04e17
+model_size_bytes: 47617
+model_uuid: m-47027afaed174d6f8a72b24b30e04e17
+prompts: null
+run_id: 5a4e34f160f447acb5dfd1c1b3d8fa72
+utc_time_created: '2026-01-04 15:09:59.273906'
