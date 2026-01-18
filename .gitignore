@@ -1,3 +1,17 @@
 .venv/
 __pycache__/
 *.pyc
+# Legacy & Unused
+airflow_env/
+D:*/
+analytics.py
+check_kafka.py
+raw_zone/recomart_raw_transactions_dec_2025.csv
+practice.ipynb
+TODO.md
+recomart_data_quality_report.pdf
+
+# Experiments & Monitoring
+mlruns/
+mlflow.db
+model_store/inference_logs.db

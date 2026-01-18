@@ -1,5 +1,13 @@
 streamlit
 joblib
 pandas
-sklearn
+scikit-learn
 mlflow
+kafka-python
+requests
+fpdf2
+python-dateutil
+numpy
+sqlite3
+matplotlib
+seaborn

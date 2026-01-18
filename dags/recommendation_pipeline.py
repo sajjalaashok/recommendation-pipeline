@@ -38,16 +38,7 @@ with DAG(
     tags=['recommendation', 'mlops'],
 ) as dag:
 
-    # Task 1: Check if raw data exists
-    validate_data = BashOperator(
-        task_id='validate_data_availability',
-        bash_command=f'test -f {PROJECT_ROOT}/raw_zone/*transaction*.csv || (echo "Transaction data missing" && exit 1)',
-        cwd=PROJECT_ROOT
-    )
-
-    # Task 2: Setup Virtual Environment & Install Dependencies
-    # We create a venv if it doesn't exist, then install requirements.
-    # This solves the permission error by writing to our mounted project dir instead of system paths.
+    # Task 1: Setup Virtual Environment & Install Dependencies
     setup_env = BashOperator(
         task_id='setup_environment',
         bash_command=f'''
@@ -55,26 +46,54 @@ with DAG(
             python -m venv {VENV_PATH}
         fi
         {PYTHON_BIN} -m pip install --upgrade pip
-        {PYTHON_BIN} -m pip install mlflow scikit-learn pandas
+        {PYTHON_BIN} -m pip install mlflow scikit-learn pandas kafka-python requests fpdf2
         ''',
         cwd=PROJECT_ROOT
     )
 
-    # Task 3: Data Transformation (Using Venv Python)
+    # Task 2a: Ingest Master Data (Sync from Simulator)
+    ingest_master = BashOperator(
+        task_id='ingest_master_data',
+        bash_command=f'{PYTHON_BIN} data_ingestion/ingest_master_data.py',
+        cwd=PROJECT_ROOT
+    )
+
+    # Task 2b: Ingest API Metadata
+    ingest_api = BashOperator(
+        task_id='ingest_api_metadata',
+        bash_command=f'{PYTHON_BIN} data_ingestion/api_ingestion.py',
+        cwd=PROJECT_ROOT
+    )
+
+    # Task 2c: Ingest Transactions (Landing Zone)
+    ingest_txns = BashOperator(
+        task_id='ingest_transactions',
+        bash_command=f'{PYTHON_BIN} data_ingestion/ingest_transactions.py',
+        cwd=PROJECT_ROOT
+    )
+
+    # Task 3: Data Validation
+    validate_data = BashOperator(
+        task_id='validate_data_quality',
+        bash_command=f'{PYTHON_BIN} data_validation.py',
+        cwd=PROJECT_ROOT
+    )
+
+    # Task 4: Data Transformation
     transform_data = BashOperator(
         task_id='transform_data',
         bash_command=f'{PYTHON_BIN} transform.py',
         cwd=PROJECT_ROOT
     )
 
-    # Task 4: Feature Store Creation (Using Venv Python)
+    # Task 5: Feature Store Creation
     build_features = BashOperator(
         task_id='build_feature_store',
         bash_command=f'{PYTHON_BIN} feature_store.py',
         cwd=PROJECT_ROOT
     )
 
-    # Task 5: Model Training (Using Venv Python)
+    # Task 6: Model Training
     train_model = BashOperator(
         task_id='train_model',
         bash_command=f'{PYTHON_BIN} train.py',
@@ -82,4 +101,4 @@ with DAG(
     )
 
     # Task Dependencies
-    validate_data >> setup_env >> transform_data >> build_features >> train_model
+    setup_env >> [ingest_master, ingest_api, ingest_txns] >> validate_data >> transform_data >> build_features >> train_model

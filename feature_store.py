@@ -12,68 +12,73 @@ DB_PATH = Path("model_store/feature_store.db")
 DB_PATH.parent.mkdir(exist_ok=True)
 
 def build_feature_store():
-    # Load processed transactions
-    df = pd.read_csv("data/processed/transactions_processed.csv")
+    # Load enriched transactions (produced by transform.py)
+    enriched_path = Path("data/processed/transactions_enriched.csv")
+    if not enriched_path.exists():
+        print(f"Error: {enriched_path} not found. Run transform.py first.")
+        return
+        
+    df = pd.read_csv(enriched_path)
     
-    # Load raw product catalog for content-based filtering (text features)
-    # We use the same logic as transform.py to find the file
-    try:
-        product_path = next(Path("raw_zone").glob("*product_catalog.csv"))
-        products_df = pd.read_csv(product_path)
-    except StopIteration:
-        print("Warning: Product catalog not found in raw_zone. Content-based features might be limited.")
-        products_df = pd.DataFrame() # Empty fallback
-
-    base_cols = [
-        'gender', 'age', 'super_category', 'category', 'brand',
-        'product_price', 'total_price', 'quantity', 'txn_date',
-        'txn_id', 'customer_id', 'product_id'
-    ]
-
-    # User activity frequency
-    df['activity_frequency'] = df.groupby('customer_id')['txn_id'].transform('nunique')
-
-    # Average rating per user/item (using quantity as proxy for implicit rating)
-    df['avg_rating'] = df.groupby('customer_id')['quantity'].transform('mean')
-
-    # Co-occurrence or similarity-based features
-    df['co_occurrence'] = df.groupby('customer_id')['product_id'].transform('nunique')
-
-    # Content-Based Features: Create a text description for each product
-    # We'll use this for TF-IDF later.
-    # Ensure no NaN values in text fields
-    df['category'] = df['category'].fillna('')
-    df['brand'] = df['brand'].fillna('')
-    # We might need the original text if we encoded them, but let's check transform.py.
-    # transform.py encodes category and brand to codes.
-    # If we want content based on text, we need the mapping or use the codes as categorical features.
-    # Ideally, we should have kept the text or have a look up.
-    # Looking at transform.py, it encodes them:
-    # monthly_txns['category'] = monthly_txns['category'].astype('category').cat.codes
-    # This loses the semantic meaning for TF-IDF on text unless we have the original strings.
-    # However, for this exercise, we might have to work with what we have (codes) or reload raw if needed.
-    # Actually, let's just create a "features" table that has the processed data ready for training.
+    # Feature Engineering
+    # 1. User Activity: Frequency of transactions
+    df['user_txn_count'] = df.groupby('customer_id')['txn_id'].transform('nunique')
     
-    # We will save the processed dataframe as is, but we might want a cleaner interaction matrix query later.
-    
+    # 2. Product stats: Average volume
+    df['prod_avg_quantity'] = df.groupby('product_id')['quantity'].transform('mean')
+
+    # Load unified interactions (Transaction + Clickstream)
+    unified_path = Path("data/processed/unified_interactions.csv")
+    if unified_path.exists():
+        interactions = pd.read_csv(unified_path)
+    else:
+        # Fallback to transactions only
+        interactions = df.groupby(['customer_id', 'product_id'], as_index=False)['quantity'].sum()
+        interactions = interactions.rename(columns={'quantity': 'interaction_score'})
+        
+    # Connect to SQLite
     conn = sqlite3.connect(DB_PATH)
+    
+    # Store Tables
+    # 'features' contains denormalized txn-level features
     df.to_sql("features", conn, if_exists="replace", index=False)
     
-    # Create specific views/tables for models if needed, or just use 'features' table.
-    # Let's create a view for interactions (User, Item, Rating/Implicit)
-    # Implicit rating = quantity or just presence. 
-    # Let's use frequency of purchase as 'rating' for now, or just binary.
-    # Or better, let's aggregate to get a 'weight' for user-item pair.
-    
-    interactions = df.groupby(['customer_id', 'product_id']).size().reset_index(name='interaction_count')
+    # 'interactions' is the core for SVD/Collaborative Filtering
     interactions.to_sql("interactions", conn, if_exists="replace", index=False)
+    
+    # 'product_metadata' is core for Content-Based Filtering
+    # We use the full catalog as the base to ensure metadata is never "missing"
+    catalog_path = Path("raw_zone/recomart_product_catalog.csv")
+    if catalog_path.exists():
+        catalog = pd.read_csv(catalog_path)
+        # Pull calculated features from df (transactions) if available
+        # product_price, sentiment_score, popularity_index are in 'df' (transactions_enriched)
+        # We join them into the catalog
+        metadata_cols = ['product_id', 'product_price', 'sentiment_score', 'popularity_index']
+        # Drop duplicates in df to get per-product values
+        df_features = df[metadata_cols].drop_duplicates('product_id')
+        
+        product_features = pd.merge(catalog, df_features, on='product_id', how='left')
+        
+        # Fill missing values from transactions (if any)
+        # Actually catalog likely already has some of these, but we prioritize the enriched ones
+        product_features.to_sql("product_metadata", conn, if_exists="replace", index=False)
+    else:
+        # Fallback to enriched set only
+        product_features = df[['product_id', 'product_name', 'category', 'brand', 'product_price', 
+                              'sentiment_score', 'popularity_index']].drop_duplicates()
+        product_features.to_sql("product_metadata", conn, if_exists="replace", index=False)
 
-    if not products_df.empty:
-        products_df.to_sql("products", conn, if_exists="replace", index=False)
-
+    # Optional: Indexing
+    cursor = conn.cursor()
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cust ON interactions (customer_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prod ON interactions (product_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_feat_cust ON features (customer_id)")
+    
+    conn.commit()
     conn.close()
 
-    print("Feature store created →", DB_PATH)
+    print("Feature store updated with multi-source data →", DB_PATH)
 
 if __name__ == "__main__":
     build_feature_store()
