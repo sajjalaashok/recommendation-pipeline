@@ -234,19 +234,28 @@ for name, path in FILES.items():
     else:
         print(f"Warning: {path} not found.")
 
-# Load partitioned transactions
+# Load transactions (Partitions + Legacy)
 import glob
-txn_files = glob.glob(os.path.join(TXN_PATH, "**/*.csv"), recursive=True)
-if txn_files:
-    print(f"Loading {len(txn_files)} transaction partitions...")
-    dfs["transactions"] = pd.concat([pd.read_csv(f) for f in txn_files], ignore_index=True)
+txn_dfs = []
+
+# 1. Partitions
+partition_files = glob.glob(os.path.join(TXN_PATH, "**/*.csv"), recursive=True)
+if partition_files:
+    print(f"Loading {len(partition_files)} transaction partitions...")
+    txn_dfs.extend([pd.read_csv(f) for f in partition_files])
+
+# 2. Legacy File
+legacy_txn_path = os.path.join(PATH, "recomart_raw_transactions_dec_2025.csv")
+if os.path.exists(legacy_txn_path):
+    print(f"Loading legacy transactions from {legacy_txn_path}...")
+    txn_dfs.append(load_csv(legacy_txn_path))
+
+# 3. Combine
+if txn_dfs:
+    dfs["transactions"] = pd.concat(txn_dfs, ignore_index=True)
 else:
-    print("Warning: No partitioned transactions found. Checking for legacy file...")
-    legacy_txn = "raw_zone/recomart_raw_transactions_dec_2025.csv"
-    if os.path.exists(legacy_txn):
-        dfs["transactions"] = load_csv(legacy_txn)
-    else:
-        dfs["transactions"] = pd.DataFrame(columns=EXPECTED_SCHEMAS["transactions"]["columns"])
+    print("Warning: No transaction data found (partitions or legacy).")
+    dfs["transactions"] = pd.DataFrame(columns=EXPECTED_SCHEMAS["transactions"]["columns"])
 
 # ------------------------------------------------------------
 # Validation pipeline
@@ -327,86 +336,152 @@ if "external_metadata" in dfs and "product_catalog" in dfs:
     }
 
 # ------------------------------------------------------------
-# PDF Report
+# PDF Report (Table-based)
 # ------------------------------------------------------------
 class ReportPDF(FPDF):
     def header(self):
-        self.set_font("Arial", "B", 14)
-        self.cell(0, 10, "Recomart Data Quality Report", ln=True, align="C")
-        self.set_font("Arial", "", 10)
-        self.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="C")
-        self.ln(2)
-        self.line(10, 28, 200, 28)
+        self.set_font("helvetica", "B", 16)
+        self.cell(0, 10, "Recomart Data Quality Report", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.set_font("helvetica", "", 10)
+        self.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", align="C", new_x="LMARGIN", new_y="NEXT")
         self.ln(5)
 
     def section_title(self, title):
-        self.set_font("Arial", "B", 12)
-        self.cell(0, 8, title, ln=True)
-        self.set_font("Arial", "", 10)
+        self.ln(5)
+        self.set_font("helvetica", "B", 14)
+        self.set_fill_color(240, 240, 240)
+        self.cell(0, 10, title, fill=True, new_x="LMARGIN", new_y="NEXT")
+        self.ln(2)
+        self.set_font("helvetica", "", 10)
 
-    def kv(self, key, value):
-        self.set_font("Arial", "", 10)
-        self.multi_cell(0, 6, f"{key}: {value}")
+    def add_summary_table(self, summary_data):
+        self.set_font("helvetica", "", 10)
+        with self.table() as table:
+            row = table.row()
+            for header in ["Dataset", "Rows", "Missing (Total)", "Duplicates", "GE Status"]:
+                row.cell(header)
+            
+            for name, stats in summary_data.items():
+                row = table.row()
+                row.cell(name)
+                row.cell(str(stats["row_count"]))
+                row.cell(str(stats["missing_values"]["total_missing"]))
+                dup = stats["duplicates"]["duplicate_rows"]
+                row.cell(str(dup) if dup is not None else "N/A")
+                
+                ge_status = "Enabled" if stats["ge"]["ge_enabled"] else "Disabled"
+                if stats["ge"]["ge_success"] is not None:
+                    ge_status += " (Pass)" if stats["ge"]["ge_success"] else " (Fail)"
+                row.cell(ge_status)
+
+    def add_dataset_details(self, name, stats):
+        self.section_title(f"Dataset Details: {name}")
+        
+        # Schema Table
+        self.set_font("helvetica", "B", 11)
+        self.cell(0, 8, "Schema & Missing Values", new_x="LMARGIN", new_y="NEXT")
+        self.set_font("helvetica", "", 10)
+        
+        mv_cols = stats["missing_values"]["missing_by_column"]
+        extra_cols = stats["schema"]["extra_columns"]
+        missing_cols = stats["schema"]["missing_columns"]
+
+        data_rows = []
+        if missing_cols:
+             data_rows.append(["Schema Error", f"Missing columns: {', '.join(missing_cols)}"])
+        if extra_cols:
+             data_rows.append(["Schema Warning", f"Extra columns: {', '.join(extra_cols)}"])
+        
+        if mv_cols:
+            for col, count in mv_cols.items():
+                data_rows.append([f"Column: {col}", f"Missing Count: {count}"])
+        else:
+            data_rows.append(["Missing Values", "None detected"])
+
+        with self.table() as table:
+            row = table.row()
+            row.cell("Check")
+            row.cell("Result")
+            for d in data_rows:
+                row = table.row()
+                row.cell(d[0])
+                row.cell(d[1])
+
+        # Rules Table
+        rf_issues = stats["range_format_issues"]
+        if rf_issues:
+            self.ln(4)
+            self.set_font("helvetica", "B", 11)
+            self.cell(0, 8, "Data Quality Rules Violations", new_x="LMARGIN", new_y="NEXT")
+            self.set_font("helvetica", "", 10)
+            
+            with self.table() as table:
+                row = table.row()
+                row.cell("Column")
+                row.cell("Issue Type")
+                row.cell("Details")
+                
+                for col, issues in rf_issues.items():
+                    for issue_type, details in issues.items():
+                        row = table.row()
+                        row.cell(col)
+                        row.cell(issue_type)
+                        # Format details dict to string
+                        if isinstance(details, dict):
+                            detail_str = ", ".join([f"{k}: {v}" for k, v in details.items()])
+                        else:
+                            detail_str = str(details)
+                        row.cell(detail_str)
+
+    def add_integrity_section(self, integrity_data):
+        self.section_title("Cross-Dataset Integrity")
+        
+        with self.table() as table:
+            row = table.row()
+            row.cell("Relationship Check")
+            row.cell("Status")
+            row.cell("Details")
+            
+            for check_name, result in integrity_data.items():
+                row = table.row()
+                row.cell(check_name)
+                
+                missing_count = result.get("missing_ref_count", 0)
+                status = "PASS" if missing_count == 0 else "FAIL"
+                row.cell(status)
+                
+                if missing_count > 0:
+                    row.cell(f"{missing_count} orphan references found")
+                else:
+                    row.cell("All references valid")
 
 pdf = ReportPDF()
-pdf.set_auto_page_break(auto=True, margin=15)
 pdf.add_page()
 
-# Executive summary
-pdf.section_title("Executive summary")
-total_rows = sum(s["row_count"] for s in summary.values())
-total_missing = sum(s["missing_values"]["total_missing"] for s in summary.values())
-total_duplicates = sum((s["duplicates"]["duplicate_rows"] or 0) for s in summary.values())
-pdf.kv("Datasets processed", ", ".join(summary.keys()))
-pdf.kv("Total rows", total_rows)
-pdf.kv("Total missing values (all datasets)", total_missing)
-pdf.kv("Total duplicate rows (by primary keys)", total_duplicates)
-pdf.kv("GE enabled", any(s["ge"]["ge_enabled"] for s in summary.values()))
-pdf.ln(4)
+# Executive Summary
+pdf.section_title("Executive Summary")
+pdf.add_summary_table(summary)
 
-# Dataset sections
+# Details per dataset
 for name, s in summary.items():
-    pdf.section_title(f"Dataset: {name}")
-    pdf.kv("Row count", s["row_count"])
+    pdf.add_dataset_details(name, s)
 
-    schema = s["schema"]
-    pdf.kv("Missing columns", schema["missing_columns"] or "None")
-    pdf.kv("Extra columns", schema["extra_columns"] or "None")
-
-    mv = s["missing_values"]
-    pdf.kv("Total missing values", mv["total_missing"])
-    if mv["missing_by_column"]:
-        pdf.kv("Missing by column", json.dumps(mv["missing_by_column"], indent=2))
-
-    pdf.kv("Duplicate rows (by PK)", s["duplicates"]["duplicate_rows"])
-
-    rf = s["range_format_issues"]
-    if rf:
-        pdf.kv("Range/format checks", json.dumps(rf, indent=2)[:2000])
-
-    ge_stat = s["ge"]["ge_statistics"]
-    pdf.kv("GE success", s["ge"]["ge_success"])
-    pdf.kv("GE evaluated expectations", ge_stat.get("evaluated_expectations"))
-    pdf.kv("GE successful expectations", ge_stat.get("successful_expectations"))
-    pdf.kv("GE unsuccessful expectations", ge_stat.get("unsuccessful_expectations"))
-    if "error" in ge_stat:
-        pdf.kv("GE error", ge_stat["error"])
-    pdf.ln(4)
-
-# Cross-dataset integrity
-pdf.section_title("Cross-dataset integrity checks")
-for k, v in integrity.items():
-    pdf.kv(k, json.dumps(v, indent=2)[:2000])
-pdf.ln(4)
+# Integrity
+pdf.add_integrity_section(integrity)
 
 REPORT_NAME = "recomart_data_quality_report.pdf"
 pdf.output(REPORT_NAME)
 
 print(f"Report generated: {REPORT_NAME}")
-print("\nSummary (compact):")
+print("\n[Summary Table]")
+print(f"{'Dataset':<20} | {'Rows':<8} | {'Missing':<8} | {'Dups':<6} | {'GE Success'}")
+print("-" * 70)
 for name, s in summary.items():
-    print(f"- {name}: rows={s['row_count']}, missing={s['missing_values']['total_missing']}, "
-          f"dup={s['duplicates']['duplicate_rows']}, GE_enabled={s['ge']['ge_enabled']}, GE_success={s['ge']['ge_success']}")
-print("\nCross-dataset integrity:")
+    ge_s = s['ge']['ge_success']
+    print(f"{name:<20} | {s['row_count']:<8} | {s['missing_values']['total_missing']:<8} | "
+          f"{s['duplicates']['duplicate_rows'] or 'N/A':<6} | {ge_s}")
+
+print("\n[Integrity Checks]")
 for k, v in integrity.items():
-    print(f"- {k}: {v['missing_ref_count'] if 'missing_ref_count' in v else 'see details'}")
+    print(f"- {k}: {v.get('missing_ref_count', 'N/A')} issues")
+

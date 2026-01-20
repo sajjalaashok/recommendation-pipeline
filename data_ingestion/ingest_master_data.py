@@ -3,11 +3,13 @@ from pathlib import Path
 import logging
 
 # Config
-SOURCE_DIR = Path("data_simulator")
+SOURCE_DIR = Path("data/raw")
 TARGET_DIR = Path("raw_zone")
 MASTER_FILES = {
     "recomart_product_catalog.csv": "recomart_product_catalog.csv",
-    "recomart_master_customers.csv": "recomart_raw_customers.csv"
+    "recomart_raw_customers.csv": "recomart_raw_customers.csv",
+    "recomart_raw_products.csv": "recomart_raw_products.csv",
+    "recomart_raw_transactions_dec_2025.csv": "recomart_raw_transactions_dec_2025.csv"
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

@@ -8,6 +8,6 @@ requests
 fpdf2
 python-dateutil
 numpy
-sqlite3
+
 matplotlib
 seaborn
