@@ -78,7 +78,7 @@ def build_feature_store():
     conn.commit()
     conn.close()
 
-    print("Feature store updated with multi-source data →", DB_PATH)
+    print("Feature store updated with multi-source data ->", DB_PATH)
 
 if __name__ == "__main__":
     build_feature_store()

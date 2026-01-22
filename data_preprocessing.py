@@ -35,9 +35,7 @@ def load_data():
         txn_dfs.extend([pd.read_csv(f) for f in partition_files])
         
     # Legacy
-    legacy = RAW_PATH / "recomart_raw_transactions_dec_2025.csv"
-    if legacy.exists():
-        txn_dfs.append(pd.read_csv(legacy))
+
         
     if txn_dfs:
         datasets["transactions"] = pd.concat(txn_dfs, ignore_index=True)

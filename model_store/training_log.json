@@ -1,0 +1,54 @@
+{
+    "runs": [
+        {
+            "run_id": "Collaborative_Filtering_20260121_091604",
+            "run_name": "Collaborative_Filtering",
+            "timestamp": "2026-01-21 09:16:04.803991",
+            "params": {},
+            "metrics": {
+                "rmse": 4.02130676494856,
+                "precision_at_10": 0.7466666666666667
+            },
+            "artifacts": [
+                "model"
+            ]
+        },
+        {
+            "run_id": "Content_Based_20260121_091605",
+            "run_name": "Content_Based",
+            "timestamp": "2026-01-21 09:16:05.007727",
+            "params": {
+                "n_products": 1000
+            },
+            "metrics": {
+                "mean_item_similarity": 0.027989702000197052
+            },
+            "artifacts": []
+        },
+        {
+            "run_id": "Collaborative_Filtering_20260121_094603",
+            "run_name": "Collaborative_Filtering",
+            "timestamp": "2026-01-21 09:46:03.102831",
+            "params": {},
+            "metrics": {
+                "rmse": 4.02130676494856,
+                "precision_at_10": 0.7466666666666666
+            },
+            "artifacts": [
+                "model"
+            ]
+        },
+        {
+            "run_id": "Content_Based_20260121_094603",
+            "run_name": "Content_Based",
+            "timestamp": "2026-01-21 09:46:03.918358",
+            "params": {
+                "n_products": 1010
+            },
+            "metrics": {
+                "mean_item_similarity": 0.027708684998279734
+            },
+            "artifacts": []
+        }
+    ]
+}

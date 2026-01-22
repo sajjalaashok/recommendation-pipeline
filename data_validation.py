@@ -44,6 +44,8 @@ os.makedirs(TXN_PATH, exist_ok=True)
 os.makedirs(os.path.join(PATH, "clickstream"), exist_ok=True)
 os.makedirs(os.path.join(PATH, "landing"), exist_ok=True)
 
+CLICKSTREAM_PATH = os.path.join(PATH, "clickstream")
+
 EXPECTED_SCHEMAS = {
     "product_catalog": {
         "columns": [
@@ -84,6 +86,17 @@ EXPECTED_SCHEMAS = {
             "popularity_index": "numeric",
             "last_updated": "date"
         },
+    },
+    "clickstream": {
+        "columns": [
+            "event_id", "user_id", "item_id", "category", "price", "event_type",
+            "event_strength", "session_id", "timestamp", "device"
+        ],
+        "types": {
+            "event_id": "str", "user_id": "str", "item_id": "str",
+            "event_type": "str", "event_strength": "numeric",
+            "timestamp": "date"
+        }
     }
 }
 
@@ -110,6 +123,11 @@ RULES = {
         "sentiment_score": {"min": 0, "max": 1},
         "popularity_index": {"min": 0, "max": 10000},
         "last_updated": {"format": "%Y-%m-%d"},
+    },
+    "clickstream": {
+        "event_strength": {"min": 1, "max": 5},
+        "event_type": {"allowed": ["view", "add_to_cart", "purchase"]},
+        "device": {"allowed": ["mobile", "tablet", "desktop"]},
     }
 }
 
@@ -245,10 +263,7 @@ if partition_files:
     txn_dfs.extend([pd.read_csv(f) for f in partition_files])
 
 # 2. Legacy File
-legacy_txn_path = os.path.join(PATH, "recomart_raw_transactions_dec_2025.csv")
-if os.path.exists(legacy_txn_path):
-    print(f"Loading legacy transactions from {legacy_txn_path}...")
-    txn_dfs.append(load_csv(legacy_txn_path))
+
 
 # 3. Combine
 if txn_dfs:
@@ -256,6 +271,30 @@ if txn_dfs:
 else:
     print("Warning: No transaction data found (partitions or legacy).")
     dfs["transactions"] = pd.DataFrame(columns=EXPECTED_SCHEMAS["transactions"]["columns"])
+
+
+# 4. Load Clickstream (JSON)
+clickstream_files = glob.glob(os.path.join(CLICKSTREAM_PATH, "**/*.json"), recursive=True)
+clickstream_data = []
+
+if clickstream_files:
+    print(f"Loading {len(clickstream_files)} clickstream files...")
+    for f in clickstream_files:
+        try:
+            with open(f, 'r') as file:
+                data = json.load(file)
+                if isinstance(data, list):
+                    clickstream_data.extend(data)
+                elif isinstance(data, dict):
+                     clickstream_data.append(data)
+        except Exception as e:
+            print(f"Error loading {f}: {e}")
+
+if clickstream_data:
+    dfs["clickstream"] = pd.DataFrame(clickstream_data)
+else:
+    print("Warning: No clickstream data found.")
+    dfs["clickstream"] = pd.DataFrame(columns=EXPECTED_SCHEMAS["clickstream"]["columns"])
 
 # ------------------------------------------------------------
 # Validation pipeline

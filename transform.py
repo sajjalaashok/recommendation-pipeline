@@ -18,13 +18,8 @@ def transform():
     print("Loading partitioned transactions...")
     txn_files = list(TXN_PARTITIONS.glob("**/ingested_*.csv"))
     if not txn_files:
-        print("Warning: No partitioned transactions found. Checking for legacy...")
-        legacy = list(RAW_PATH.glob("*transaction*.csv"))
-        if legacy:
-            monthly_txns = pd.read_csv(legacy[0])
-        else:
-            print("Error: No transaction data found.")
-            return
+        print("Error: No transaction data found.")
+        return
     else:
         monthly_txns = pd.concat([pd.read_csv(f) for f in txn_files], ignore_index=True)
 
@@ -64,7 +59,7 @@ def transform():
 
     # Preserve labels for feature store (avoid premature encoding)
     monthly_txns.to_csv(OUT_DIR/"transactions_enriched.csv", index=False)
-    print("Enriched transaction data saved →", OUT_DIR/"transactions_enriched.csv")
+    print("Enriched transaction data saved ->", OUT_DIR/"transactions_enriched.csv")
     
     # Process Clickstream and Create Unified Interactions
     clickstream_df = process_clickstream()
@@ -90,7 +85,7 @@ def transform():
     
     # Save
     unified.to_csv(OUT_DIR/"unified_interactions.csv", index=False)
-    print("Unified interactions saved →", OUT_DIR/"unified_interactions.csv")
+    print("Unified interactions saved ->", OUT_DIR/"unified_interactions.csv")
 
 def process_clickstream():
     print("Processing clickstream data...")
