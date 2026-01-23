@@ -1,0 +1,59 @@
+project: recomart
+version: "1.0"
+entities:
+  - name: customer_id
+    type: string
+    description: "Unique identifier for the user"
+  - name: product_id
+    type: string
+    description: "Unique identifier for the product"
+
+feature_views:
+  - name: user_activity_stats
+    source: "model_store/feature_store.db (Table: features)"
+    entities: [customer_id]
+    features:
+      - name: user_txn_count
+        type: int
+        description: "Number of unique transactions by the user"
+        tags: [frequency, activity]
+      - name: user_avg_score
+        type: float
+        description: "Average implicit rating across all interactions"
+        tags: [preference, rating]
+
+  - name: product_performance
+    source: "model_store/feature_store.db (Table: product_metadata)"
+    entities: [product_id]
+    features:
+      - name: prod_avg_quantity
+        type: float
+        description: "Average quantity purchased per transaction"
+        tags: [volume]
+      - name: item_avg_score
+        type: float
+        description: "Average popularity/rating of the item"
+        tags: [popularity, rating]
+      - name: sentiment_score
+        type: float
+        description: "Aggregated sentiment from external metadata"
+        tags: [sentiment]
+      - name: popularity_index
+        type: float
+        description: "External popularity metric"
+        tags: [popularity]
+      - name: product_price
+        type: float
+        description: "Base price of the product"
+        tags: [static]
+
+  - name: co_occurrence_pairs
+    source: "model_store/feature_store.db (Table: co_occurrence)"
+    entities: [product_a] # Primary lookup key
+    features:
+      - name: product_b
+        type: string
+        description: "Associated product ID"
+      - name: frequency
+        type: int
+        description: "Number of times Pair(A, B) appeared together"
